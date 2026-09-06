@@ -49,6 +49,7 @@ app.*.map.json
 
 # Local planning documents, reference material and personal dictionaries
 /*.md
+!/README.md
 /Refs/
 /examples/
 
