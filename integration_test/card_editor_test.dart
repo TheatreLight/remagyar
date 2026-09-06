@@ -17,6 +17,8 @@ void main() {
     await tester.pumpWidget(ReMagyarApp(store: store));
     await tester.pumpAndSettle();
     Future<void> tap(String text, {double delta = 250}) async {
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text(text),
         delta,
@@ -48,6 +50,9 @@ void main() {
     final time = DateTime.utc(2026);
     await store.record(card.id!, true, time);
     await tap('Банк слов', delta: -250);
+    await tester.enterText(find.byKey(const Key('bankSearch')), 'ЗДА');
+    await tester.pumpAndSettle();
+    expect(find.text('ház'), findsOneWidget);
     await tester.tap(find.text('ház'));
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(translation(2)).controller!.text, 'здание');
@@ -68,6 +73,15 @@ void main() {
     await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
     expect((await store.card(card.id!)).lastSuccessAt, isNull);
+    await tester.tap(find.byTooltip('Назад'));
+    await tester.pumpAndSettle();
+    await tap('Изучение слов', delta: -250);
+    await tester.tap(find.byTooltip('Редактировать слово'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('cardHungarian')), 'házikó');
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(find.text('házikó'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await store.close();
     final reopened = await CardStore.open(path: path);

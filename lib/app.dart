@@ -474,6 +474,13 @@ class BankScreen extends StatefulWidget {
 
 class _BankScreenState extends State<BankScreen> {
   late Future<List<WordCard>> words = widget.store.cards();
+  final search = TextEditingController();
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
   bool deletingAll = false;
 
   Future<void> removeAll() async {
@@ -545,58 +552,90 @@ class _BankScreenState extends State<BankScreen> {
         ),
       ],
     ),
-    body: FutureBuilder<List<WordCard>>(
-      future: words,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(child: Text('Не удалось прочитать банк.'));
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final cards = snapshot.data!;
-        if (cards.isEmpty) {
-          return const Center(child: Text('Банк пока пуст'));
-        }
-        return ListView.separated(
-          itemCount: cards.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final card = cards[index];
-            return ListTile(
-              title: Text(card.hungarian),
-              onTap: deletingAll
+    body: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: TextField(
+            key: const Key('bankSearch'),
+            controller: search,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Поиск слова или перевода',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: search.text.isEmpty
                   ? null
-                  : () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              CardEditor(store: widget.store, cardId: card.id),
-                        ),
-                      );
-                      if (mounted) {
-                        setState(() {
-                          words = widget.store.cards();
-                        });
-                      }
-                    },
-              subtitle: Text(
-                '${card.russian.join(' / ')}\n${card.lastResult == null
-                    ? 'Ещё не повторяли'
-                    : card.lastResult!
-                    ? 'Последний ответ: верно'
-                    : 'Последний ответ: неверно'}',
-              ),
-              trailing: IconButton(
-                tooltip: 'Удалить ${card.hungarian}',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: deletingAll ? null : () => remove(card),
-              ),
-            );
-          },
-        );
-      },
+                  : IconButton(
+                      tooltip: 'Очистить поиск',
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => search.clear()),
+                    ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: FutureBuilder<List<WordCard>>(
+            future: words,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(child: Text('Не удалось прочитать банк.'));
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.data!.isEmpty) {
+                return const Center(child: Text('Банк пока пуст'));
+              }
+              final cards = snapshot.data!
+                  .where((card) => matchesCardSearch(card, search.text))
+                  .toList();
+              if (cards.isEmpty) {
+                return const Center(child: Text('Слова не найдены'));
+              }
+              return ListView.separated(
+                itemCount: cards.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final card = cards[index];
+                  return ListTile(
+                    title: Text(card.hungarian),
+                    onTap: deletingAll
+                        ? null
+                        : () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => CardEditor(
+                                  store: widget.store,
+                                  cardId: card.id,
+                                ),
+                              ),
+                            );
+                            if (mounted) {
+                              setState(() {
+                                words = widget.store.cards();
+                              });
+                            }
+                          },
+                    subtitle: Text(
+                      '${card.russian.join(' / ')}\n${card.lastResult == null
+                          ? 'Ещё не повторяли'
+                          : card.lastResult!
+                          ? 'Последний ответ: верно'
+                          : 'Последний ответ: неверно'}',
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Удалить ${card.hungarian}',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: deletingAll ? null : () => remove(card),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -620,6 +659,7 @@ class LessonScreen extends StatefulWidget {
 }
 
 class _LessonScreenState extends State<LessonScreen> {
+  late final studyCards = List<WordCard>.of(widget.cards);
   late final session = ReviewSession(
     cards: widget.cards,
     save: widget.store.record,
@@ -631,8 +671,35 @@ class _LessonScreenState extends State<LessonScreen> {
   int mode = 0;
   List<String> choices = [];
   late Future<Uint8List?> picture;
-  WordCard get card =>
-      widget.review ? session.current : widget.cards[studyIndex];
+  WordCard get card => widget.review ? session.current : studyCards[studyIndex];
+
+  Future<void> editStudyCard() async {
+    final index = studyIndex;
+    final id = card.id!;
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => CardEditor(store: widget.store, cardId: id),
+      ),
+    );
+    if (!mounted) return;
+    try {
+      final updated = await widget.store.card(id);
+      if (mounted) {
+        setState(() {
+          studyCards[index] = updated;
+          picture = Future.value(updated.image);
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось обновить карточку.')),
+        );
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -725,14 +792,26 @@ class _LessonScreenState extends State<LessonScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        widget.direction == Direction.huRu
-                            ? 'ВЕНГЕРСКИЙ'
-                            : 'РУССКИЙ',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          letterSpacing: 2,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.direction == Direction.huRu
+                                  ? 'ВЕНГЕРСКИЙ'
+                                  : 'РУССКИЙ',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                          ),
+                          if (!widget.review)
+                            IconButton(
+                              tooltip: 'Редактировать слово',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: editStudyCard,
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 20),
                       FutureBuilder<Uint8List?>(

@@ -1,5 +1,14 @@
 import 'dart:typed_data';
 
+import 'package:unorm_dart/unorm_dart.dart' as unicode;
+
+bool matchesCardSearch(WordCard card, String query) {
+  String normalized(String value) => unicode.nfc(value).toLowerCase();
+  final part = normalized(query.trim());
+  return normalized(card.hungarian).contains(part) ||
+      card.russian.any((translation) => normalized(translation).contains(part));
+}
+
 enum Direction { huRu, ruHu }
 
 class WordCard {
